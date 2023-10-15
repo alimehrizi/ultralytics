@@ -854,13 +854,8 @@ class Format:
                  return_keypoint=False,
                  mask_ratio=4,
                  mask_overlap=True,
-<<<<<<< HEAD
-                 batch_idx=True):
-        """Initializes the Format class with given parameters."""
-=======
                  batch_idx=True,
                  return_embeddings=False):
->>>>>>> ea77f6a (adding embed and fixing export)
         self.bbox_format = bbox_format
         self.normalize = normalize
         self.return_mask = return_mask  # set False when training detection only

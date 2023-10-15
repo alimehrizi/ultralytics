@@ -114,15 +114,9 @@ class BaseValidator:
             self.args.half = self.device.type != 'cpu'  # force FP16 val during training
             model = trainer.ema.ema or trainer.model
             model = model.half() if self.args.half else model.float()
-<<<<<<< HEAD
             # self.model = model
             self.loss = torch.zeros_like(trainer.loss_items, device=trainer.device)
             self.args.plots &= trainer.stopper.possible_stop or (trainer.epoch == trainer.epochs - 1)
-=======
-            self.model = model
-            self.loss = torch.zeros_like(trainer.loss_items, device="cpu")
-            self.args.plots = trainer.stopper.possible_stop or (trainer.epoch == trainer.epochs - 1)
->>>>>>> ea77f6a (adding embed and fixing export)
             model.eval()
         else:
 

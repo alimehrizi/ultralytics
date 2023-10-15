@@ -8,14 +8,9 @@ import cv2
 import numpy as np
 import torch
 import torchvision
-<<<<<<< HEAD
-
-from ultralytics.utils import LOCAL_RANK, NUM_THREADS, TQDM, colorstr, is_dir_writeable
-=======
 from tqdm import tqdm
 from typing import Optional
 from ultralytics.utils import LOCAL_RANK, NUM_THREADS, TQDM_BAR_FORMAT, colorstr, is_dir_writeable
->>>>>>> ea77f6a (adding embed and fixing export)
 
 from .augment import Compose, Format, Instances, LetterBox, classify_albumentations, classify_transforms, v8_transforms,v8track_transforms
 from .base import BaseDataset

@@ -12,12 +12,8 @@ from ultralytics.utils import LOGGER, ops
 from ultralytics.utils.checks import check_requirements
 from ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
 from ultralytics.utils.plotting import output_to_target, plot_images
-<<<<<<< HEAD
-
-=======
 from ultralytics.utils.torch_utils import de_parallel
 EMBED_SIZE = 32
->>>>>>> ea77f6a (adding embed and fixing export)
 
 class DetectionValidator(BaseValidator):
     """
