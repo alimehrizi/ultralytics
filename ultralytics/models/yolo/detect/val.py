@@ -6,13 +6,18 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ultralytics.data import build_dataloader, build_yolo_dataset, converter
+from ultralytics.data import build_dataloader, build_yolo_dataset, converter, build_yolo_tracking_dataset
 from ultralytics.engine.validator import BaseValidator
 from ultralytics.utils import LOGGER, ops
 from ultralytics.utils.checks import check_requirements
 from ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
 from ultralytics.utils.plotting import output_to_target, plot_images
+<<<<<<< HEAD
 
+=======
+from ultralytics.utils.torch_utils import de_parallel
+EMBED_SIZE = 32
+>>>>>>> ea77f6a (adding embed and fixing export)
 
 class DetectionValidator(BaseValidator):
     """
@@ -264,3 +269,88 @@ class DetectionValidator(BaseValidator):
             except Exception as e:
                 LOGGER.warning(f'pycocotools unable to run: {e}')
         return stats
+
+
+
+class DeTrackValidator(DetectionValidator):
+    def __init__(self, dataloader=None, save_dir=None, pbar=None, args=None, _callbacks=None):
+        """Initialize detection model with necessary variables and settings."""
+        super().__init__(dataloader, save_dir, pbar, args, _callbacks)
+        self.embed_size = EMBED_SIZE
+
+
+    def postprocess(self, preds):
+        """Apply Non-maximum suppression to prediction outputs."""
+        return ops.non_max_suppression_embedding(preds,
+                                        self.embed_size,
+                                       self.args.conf,
+                                       self.args.iou,
+                                       labels=self.lb,
+                                       multi_label=True,
+                                       agnostic=self.args.single_cls,
+                                       max_det=self.args.max_det)
+    
+
+
+
+    def update_metrics(self, preds, batch):
+        """Metrics."""
+    
+        for si, pred in enumerate(preds):
+            pred = pred[:,:6]
+            idx = batch['batch_idx'] == si
+            cls = batch['cls'][idx]
+            bbox = batch['bboxes'][idx]
+            nl, npr = cls.shape[0], pred.shape[0]  # number of labels, predictions
+            shape = batch['ori_shape'][si]
+            correct_bboxes = torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device)  # init
+            self.seen += 1
+
+            if npr == 0:
+                if nl:
+                    self.stats.append((correct_bboxes, *torch.zeros((2, 0), device=self.device), cls.squeeze(-1)))
+                    if self.args.plots:
+                        self.confusion_matrix.process_batch(detections=None, labels=cls.squeeze(-1))
+                continue
+
+            # Predictions
+            if self.args.single_cls:
+                pred[:, 5] = 0
+            predn = pred.clone()
+            ops.scale_boxes(batch['img'][si].shape[1:], predn[:, :4], shape,
+                            ratio_pad=batch['ratio_pad'][si])  # native-space pred
+
+            # Evaluate
+            if nl:
+                height, width = batch['img'].shape[2:]
+                tbox = ops.xywh2xyxy(bbox) * torch.tensor(
+                    (width, height, width, height), device=self.device)  # target boxes
+                ops.scale_boxes(batch['img'][si].shape[1:], tbox, shape,
+                                ratio_pad=batch['ratio_pad'][si])  # native-space labels
+                labelsn = torch.cat((cls, tbox), 1)  # native-space labels
+                correct_bboxes = self._process_batch(predn, labelsn)
+                # TODO: maybe remove these `self.` arguments as they already are member variable
+                if self.args.plots:
+                    self.confusion_matrix.process_batch(predn, labelsn)
+            self.stats.append((correct_bboxes, pred[:, 4], pred[:, 5], cls.squeeze(-1)))  # (conf, pcls, tcls)
+
+            # Save
+            if self.args.save_json:
+                self.pred_to_json(predn, batch['im_file'][si])
+            if self.args.save_txt:
+                file = self.save_dir / 'labels' / f'{Path(batch["im_file"][si]).stem}.txt'
+                self.save_one_txt(predn, self.args.save_conf, shape, file)
+
+
+    
+    def build_dataset(self, img_path, mode='val', batch=None):
+        """
+        Build YOLO Dataset.
+
+        Args:
+            img_path (str): Path to the folder containing images.
+            mode (str): `train` mode or `val` mode, users are able to customize different augmentations for each mode.
+            batch (int, optional): Size of batches, this is for `rect`. Defaults to None.
+        """
+        gs = max(int(de_parallel(self.model).stride if self.model else 0), 32)
+        return build_yolo_tracking_dataset(self.args, img_path, batch, self.data, mode=mode, stride=gs)

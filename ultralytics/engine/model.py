@@ -4,7 +4,6 @@ import inspect
 import sys
 from pathlib import Path
 from typing import Union
-
 from ultralytics.cfg import TASK2DATA, get_cfg, get_save_dir
 from ultralytics.hub.utils import HUB_WEB_ROOT
 from ultralytics.nn.tasks import attempt_load_one_weight, guess_model_task, nn, yaml_model_load
@@ -428,3 +427,5 @@ class Model(nn.Module):
             task_map (dict): The map of model task to mode classes.
         """
         raise NotImplementedError('Please provide task map for your model!')
+    
+

@@ -4,10 +4,10 @@ from copy import copy
 
 import numpy as np
 
-from ultralytics.data import build_dataloader, build_yolo_dataset
+from ultralytics.data import build_dataloader, build_yolo_dataset, build_yolo_tracking_dataset
 from ultralytics.engine.trainer import BaseTrainer
 from ultralytics.models import yolo
-from ultralytics.nn.tasks import DetectionModel
+from ultralytics.nn.tasks import DetectionModel, DeTrackModel
 from ultralytics.utils import LOGGER, RANK
 from ultralytics.utils.plotting import plot_images, plot_labels, plot_results
 from ultralytics.utils.torch_utils import de_parallel, torch_distributed_zero_first
@@ -115,3 +115,31 @@ class DetectionTrainer(BaseTrainer):
         boxes = np.concatenate([lb['bboxes'] for lb in self.train_loader.dataset.labels], 0)
         cls = np.concatenate([lb['cls'] for lb in self.train_loader.dataset.labels], 0)
         plot_labels(boxes, cls.squeeze(), names=self.data['names'], save_dir=self.save_dir, on_plot=self.on_plot)
+
+
+class DeTrackTrainer(DetectionTrainer):
+    def get_validator(self):
+        """Returns a DetectionValidator for YOLO model validation."""
+        self.loss_names = 'box_loss', 'cls_loss', 'dfl_loss'
+        args = copy(self.args)
+        args.batch = max(args.batch//4, 4)
+        return yolo.detect.DeTrackValidator(self.test_loader, save_dir=self.save_dir, args=args)
+    
+    def get_model(self, cfg=None, weights=None, verbose=True):
+        """Return a YOLO detection model."""
+        model = DeTrackModel(cfg, nc=self.data['nc'], verbose=verbose and RANK == -1)
+        if weights:
+            model.load(weights)
+        return model
+    
+    def build_dataset(self, img_path, mode='train', batch=None):
+        """
+        Build YOLO Dataset.
+
+        Args:
+            img_path (str): Path to the folder containing images.
+            mode (str): `train` mode or `val` mode, users are able to customize different augmentations for each mode.
+            batch (int, optional): Size of batches, this is for `rect`. Defaults to None.
+        """
+        gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
+        return build_yolo_tracking_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == 'val', stride=gs)

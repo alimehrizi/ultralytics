@@ -84,6 +84,7 @@ class BasePredictor:
             cfg (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
             overrides (dict, optional): Configuration overrides. Defaults to None.
         """
+        
         self.args = get_cfg(cfg, overrides)
         self.save_dir = get_save_dir(self.args)
         if self.args.conf is None:

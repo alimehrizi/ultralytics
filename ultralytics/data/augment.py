@@ -498,13 +498,14 @@ class RandomPerspective:
 
         segments = instances.segments
         keypoints = instances.keypoints
+        embeds = instances.embeddings 
         # Update bboxes if there are segments.
         if len(segments):
             bboxes, segments = self.apply_segments(segments, M)
 
         if keypoints is not None:
             keypoints = self.apply_keypoints(keypoints, M)
-        new_instances = Instances(bboxes, segments, keypoints, bbox_format='xyxy', normalized=False)
+        new_instances = Instances(bboxes, segments, keypoints, bbox_format='xyxy', normalized=False,embedding=embeds)
         # Clip
         new_instances.clip(*self.size)
 
@@ -853,12 +854,18 @@ class Format:
                  return_keypoint=False,
                  mask_ratio=4,
                  mask_overlap=True,
+<<<<<<< HEAD
                  batch_idx=True):
         """Initializes the Format class with given parameters."""
+=======
+                 batch_idx=True,
+                 return_embeddings=False):
+>>>>>>> ea77f6a (adding embed and fixing export)
         self.bbox_format = bbox_format
         self.normalize = normalize
         self.return_mask = return_mask  # set False when training detection only
         self.return_keypoint = return_keypoint
+        self.return_embeddings = return_embeddings
         self.mask_ratio = mask_ratio
         self.mask_overlap = mask_overlap
         self.batch_idx = batch_idx  # keep the batch indexes
@@ -885,7 +892,9 @@ class Format:
             instances.normalize(w, h)
         labels['img'] = self._format_img(img)
         labels['cls'] = torch.from_numpy(cls) if nl else torch.zeros(nl)
-        labels['bboxes'] = torch.from_numpy(instances.bboxes) if nl else torch.zeros((nl, 4))
+        labels['bboxes'] = torch.from_numpy(instances.bboxes) if nl else torch.zeros((nl, 4)) 
+        if self.return_embeddings:
+            labels['embeddings'] = torch.from_numpy(instances.embeddings)
         if self.return_keypoint:
             labels['keypoints'] = torch.from_numpy(instances.keypoints)
         # Then we can use collate_fn
@@ -915,6 +924,9 @@ class Format:
         return masks, instances, cls
 
 
+
+
+
 def v8_transforms(dataset, imgsz, hyp, stretch=False):
     """Convert images to a size suitable for YOLOv8 training."""
     pre_transform = Compose([
@@ -940,6 +952,32 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
     return Compose([
         pre_transform,
         MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
+        Albumentations(p=1.0),
+        RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
+        RandomFlip(direction='vertical', p=hyp.flipud),
+        RandomFlip(direction='horizontal', p=hyp.fliplr, flip_idx=flip_idx)])  # transforms
+
+
+
+
+
+def v8track_transforms(dataset, imgsz, hyp, stretch=False):
+    """Convert images to a size suitable for YOLOv8 training."""
+    pre_transform = Compose([
+        Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic),
+        CopyPaste(p=hyp.copy_paste),
+])
+    flip_idx = dataset.data.get('flip_idx', [])  # for keypoints augmentation
+    if dataset.use_keypoints:
+        kpt_shape = dataset.data.get('kpt_shape', None)
+        if len(flip_idx) == 0 and hyp.fliplr > 0.0:
+            hyp.fliplr = 0.0
+            LOGGER.warning("WARNING ⚠️ No 'flip_idx' array defined in data.yaml, setting augmentation 'fliplr=0.0'")
+        elif flip_idx and (len(flip_idx) != kpt_shape[0]):
+            raise ValueError(f'data.yaml flip_idx={flip_idx} length must be equal to kpt_shape[0]={kpt_shape[0]}')
+
+    return Compose([
+        pre_transform,
         Albumentations(p=1.0),
         RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
         RandomFlip(direction='vertical', p=hyp.flipud),

@@ -89,13 +89,14 @@ class Results(SimpleClass):
         _keys (tuple): A tuple of attribute names for non-empty attributes.
     """
 
-    def __init__(self, orig_img, path, names, boxes=None, masks=None, probs=None, keypoints=None) -> None:
+    def __init__(self, orig_img, path, names, boxes=None, masks=None, probs=None, keypoints=None, embeddings=None ) -> None:
         """Initialize the Results class."""
         self.orig_img = orig_img
         self.orig_shape = orig_img.shape[:2]
         self.boxes = Boxes(boxes, self.orig_shape) if boxes is not None else None  # native size boxes
         self.masks = Masks(masks, self.orig_shape) if masks is not None else None  # native size or imgsz masks
         self.probs = Probs(probs) if probs is not None else None
+        self.embeddings = Embed(embeddings) if embeddings is not None else None
         self.keypoints = Keypoints(keypoints, self.orig_shape) if keypoints is not None else None
         self.speed = {'preprocess': None, 'inference': None, 'postprocess': None}  # milliseconds per image
         self.names = names
@@ -572,3 +573,26 @@ class Probs(BaseTensor):
     def top5conf(self):
         """Return the confidences of top 5."""
         return self.data[self.top5]
+
+
+
+
+class Embed(BaseTensor):
+    """
+    A class for storing and manipulating classification predictions.
+
+    Attributes:
+        top1 (int): Index of the top 1 class.
+        top5 (list[int]): Indices of the top 5 classes.
+        top1conf (torch.Tensor): Confidence of the top 1 class.
+        top5conf (torch.Tensor): Confidences of the top 5 classes.
+
+    Methods:
+        cpu(): Returns a copy of the probs tensor on CPU memory.
+        numpy(): Returns a copy of the probs tensor as a numpy array.
+        cuda(): Returns a copy of the probs tensor on GPU memory.
+        to(): Returns a copy of the probs tensor with the specified device and dtype.
+    """
+
+    def __init__(self, probs, orig_shape=None) -> None:
+        super().__init__(probs, orig_shape)

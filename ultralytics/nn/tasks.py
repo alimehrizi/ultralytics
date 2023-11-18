@@ -10,10 +10,10 @@ import torch.nn as nn
 from ultralytics.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottleneck, BottleneckCSP, C2f, C3Ghost, C3x,
                                     Classify, Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
                                     Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, Pose, RepC3, RepConv,
-                                    RTDETRDecoder, Segment)
+                                    RTDETRDecoder, Segment,DetectEmbed)
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
-from ultralytics.utils.loss import v8ClassificationLoss, v8DetectionLoss, v8PoseLoss, v8SegmentationLoss
+from ultralytics.utils.loss import v8ClassificationLoss, v8DetectionLoss, v8DetrackLoss, v8PoseLoss, v8SegmentationLoss
 from ultralytics.utils.plotting import feature_visualization
 from ultralytics.utils.torch_utils import (fuse_conv_and_bn, fuse_deconv_and_bn, initialize_weights, intersect_dicts,
                                            make_divisible, model_info, scale_img, time_sync)
@@ -176,7 +176,7 @@ class BaseModel(nn.Module):
         """
         self = super()._apply(fn)
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, Segment)):
+        if isinstance(m, (Detect, Segment, DetectEmbed)):
             m.stride = fn(m.stride)
             m.anchors = fn(m.anchors)
             m.strides = fn(m.strides)
@@ -235,7 +235,7 @@ class DetectionModel(BaseModel):
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, Segment, Pose)):
+        if isinstance(m, (Detect, Segment, Pose, DetectEmbed)):
             s = 256  # 2x min stride
             m.inplace = self.inplace
             forward = lambda x: self.forward(x)[0] if isinstance(m, (Segment, Pose)) else self.forward(x)
@@ -290,6 +290,81 @@ class DetectionModel(BaseModel):
     def init_criterion(self):
         """Initialize the loss criterion for the DetectionModel."""
         return v8DetectionLoss(self)
+
+
+
+class DeTrackModel(BaseModel):
+    """YOLOv8 detection model."""
+
+    def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=True):  # model, input channels, number of classes
+        super().__init__()
+        self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)  # cfg dict
+
+        # Define model
+        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
+        if nc and nc != self.yaml['nc']:
+            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
+            self.yaml['nc'] = nc  # override YAML value
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
+        self.names = {i: f'{i}' for i in range(self.yaml['nc'])}  # default names dict
+        self.inplace = self.yaml.get('inplace', True)
+
+        # Build strides
+        m = self.model[-1]  # Detect()
+        if isinstance(m, (Detect, Segment, Pose, DetectEmbed)):
+            s = 256  # 2x min stride
+            m.inplace = self.inplace
+            forward = lambda x: self.forward(x)[0] if isinstance(m, (Segment, Pose)) else self.forward(x)
+            m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
+            self.stride = m.stride
+            m.bias_init()  # only run once
+        else:
+            self.stride = torch.Tensor([32])  # default stride for i.e. RTDETR
+
+        # Init weights, biases
+        initialize_weights(self)
+        if verbose:
+            self.info()
+            LOGGER.info('')
+
+    def _predict_augment(self, x):
+        """Perform augmentations on input image x and return augmented inference and train outputs."""
+        img_size = x.shape[-2:]  # height, width
+        s = [1, 0.83, 0.67]  # scales
+        f = [None, 3, None]  # flips (2-ud, 3-lr)
+        y = []  # outputs
+        for si, fi in zip(s, f):
+            xi = scale_img(x.flip(fi) if fi else x, si, gs=int(self.stride.max()))
+            yi = super().predict(xi)[0]  # forward
+            yi = self._descale_pred(yi, fi, si, img_size)
+            y.append(yi)
+        y = self._clip_augmented(y)  # clip augmented tails
+        return torch.cat(y, -1), None  # augmented inference, train
+
+    @staticmethod
+    def _descale_pred(p, flips, scale, img_size, dim=1):
+        """De-scale predictions following augmented inference (inverse operation)."""
+        p[:, :4] /= scale  # de-scale
+        x, y, wh, cls = p.split((1, 1, 2, p.shape[dim] - 4), dim)
+        if flips == 2:
+            y = img_size[0] - y  # de-flip ud
+        elif flips == 3:
+            x = img_size[1] - x  # de-flip lr
+        return torch.cat((x, y, wh, cls), dim)
+
+    def _clip_augmented(self, y):
+        """Clip YOLOv5 augmented inference tails."""
+        nl = self.model[-1].nl  # number of detection layers (P3-P5)
+        g = sum(4 ** x for x in range(nl))  # grid points
+        e = 1  # exclude layer count
+        i = (y[0].shape[-1] // g) * sum(4 ** x for x in range(e))  # indices
+        y[0] = y[0][..., :-i]  # large
+        i = (y[-1].shape[-1] // g) * sum(4 ** (nl - 1 - x) for x in range(e))  # indices
+        y[-1] = y[-1][..., i:]  # small
+        return y
+
+    def init_criterion(self):
+        return v8DetrackLoss(self)
 
 
 class SegmentationModel(DetectionModel):
@@ -605,7 +680,7 @@ def attempt_load_weights(weights, device=None, inplace=True, fuse=False):
     # Module updates
     for m in ensemble.modules():
         t = type(m)
-        if t in (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, Detect, Segment):
+        if t in (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, Detect, DetectEmbed, Segment):
             m.inplace = inplace
         elif t is nn.Upsample and not hasattr(m, 'recompute_scale_factor'):
             m.recompute_scale_factor = None  # torch 1.11.0 compatibility
@@ -641,7 +716,7 @@ def attempt_load_one_weight(weight, device=None, inplace=True, fuse=False):
     # Module updates
     for m in model.modules():
         t = type(m)
-        if t in (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, Detect, Segment):
+        if t in (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, Detect, DetectEmbed, Segment):
             m.inplace = inplace
         elif t is nn.Upsample and not hasattr(m, 'recompute_scale_factor'):
             m.recompute_scale_factor = None  # torch 1.11.0 compatibility
@@ -705,7 +780,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-        elif m in (Detect, Segment, Pose):
+        elif m in (Detect, DetectEmbed, Segment, Pose):
             args.append([ch[x] for x in f])
             if m is Segment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
@@ -785,6 +860,8 @@ def guess_model_task(model):
             return 'classify'
         if m == 'detect':
             return 'detect'
+        if m == 'detectembed':
+            return 'detrack'
         if m == 'segment':
             return 'segment'
         if m == 'pose':
@@ -807,6 +884,8 @@ def guess_model_task(model):
         for m in model.modules():
             if isinstance(m, Detect):
                 return 'detect'
+            elif isinstance(m, DetectEmbed):
+                return 'detect'
             elif isinstance(m, Segment):
                 return 'segment'
             elif isinstance(m, Classify):
@@ -824,6 +903,8 @@ def guess_model_task(model):
         elif '-pose' in model.stem or 'pose' in model.parts:
             return 'pose'
         elif 'detect' in model.parts:
+            return 'detect'
+        elif 'detectembed' in model.parts:
             return 'detect'
 
     # Unable to determine task from model

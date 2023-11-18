@@ -106,18 +106,27 @@ class BaseValidator:
         gets priority).
         """
         self.training = trainer is not None
-        augment = self.args.augment and (not self.training)
+        augment = False #self.args.augment and (not self.training)
+        # print("Call validator ", self.args) 
         if self.training:
             self.device = trainer.device
             self.data = trainer.data
             self.args.half = self.device.type != 'cpu'  # force FP16 val during training
             model = trainer.ema.ema or trainer.model
             model = model.half() if self.args.half else model.float()
+<<<<<<< HEAD
             # self.model = model
             self.loss = torch.zeros_like(trainer.loss_items, device=trainer.device)
             self.args.plots &= trainer.stopper.possible_stop or (trainer.epoch == trainer.epochs - 1)
+=======
+            self.model = model
+            self.loss = torch.zeros_like(trainer.loss_items, device="cpu")
+            self.args.plots = trainer.stopper.possible_stop or (trainer.epoch == trainer.epochs - 1)
+>>>>>>> ea77f6a (adding embed and fixing export)
             model.eval()
         else:
+
+
             callbacks.add_integration_callbacks(self)
             model = AutoBackend(model or self.args.model,
                                 device=select_device(self.args.device, self.args.batch),
@@ -169,16 +178,16 @@ class BaseValidator:
                 preds = model(batch['img'], augment=augment)
 
             # Loss
-            with dt[2]:
-                if self.training:
-                    self.loss += model.loss(batch, preds)[1]
+            # with dt[2]:
+            #     if self.training:
+            #         self.loss += model.loss(batch, preds)[1].cpu()
 
             # Postprocess
             with dt[3]:
                 preds = self.postprocess(preds)
 
             self.update_metrics(preds, batch)
-            if self.args.plots and batch_i < 3:
+            if (self.args.plots or True) and batch_i < 3 :
                 self.plot_val_samples(batch, batch_i)
                 self.plot_predictions(batch, preds, batch_i)
 
