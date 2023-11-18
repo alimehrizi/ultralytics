@@ -5,8 +5,8 @@ from ultralytics import settings
 
 if __name__=='__main__':
 
-    model = YOLO('ultralytics/cfg/models/v8/yolov8-track.yaml',task='detrack')
+    model = YOLO('yolov8n.pt',task='detrack')
 
-    result = model.train(data='/mnt/DD5/PedestrainDetection/CUHK-SYSU/data.yaml',epochs=500,imgsz=640,batch=16,workers=16,
-                         project='/mnt/DD3/Models_yolov8/CUHK-SYSU-tracking640s_1',plots=True)
+    result = model.train(data='/mnt/DD5/FaceDetection/WIDER_FACES/data.yaml',epochs=500,imgsz=480,batch=32,workers=16,
+                         project='/mnt/DD3/Models_yolov8/WIDER_FACES-480n',plots=True)
     
