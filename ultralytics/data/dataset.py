@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import torch
 import torchvision
-from tqdm import tqdm
+from tqdm import tqdm as TQDM
 from typing import Optional
 from ultralytics.utils import LOCAL_RANK, NUM_THREADS, TQDM_BAR_FORMAT, colorstr, is_dir_writeable
 

@@ -369,7 +369,7 @@ class BaseTrainer:
                 self.scheduler.step()
             self.run_callbacks('on_train_epoch_end')
 
-            if RANK in (-1, 0):
+            if RANK in (-1, 0) and epoch>=5:
 
                 # Validation
                 self.ema.update_attr(self.model, include=['yaml', 'nc', 'args', 'names', 'stride', 'class_weights'])
