@@ -324,8 +324,22 @@ class Model(nn.Module):
         checks.check_pip_update_available()
 
         overrides = yaml_load(checks.check_yaml(kwargs['cfg'])) if kwargs.get('cfg') else self.overrides
+                #********************** update hyp start **********************
+        if kwargs.get('hyp'):
+            if isinstance(kwargs['hyp'], dict):
+                LOGGER.info(f"hyp dict passed. Overriding params with {kwargs['hyp']}.")
+                config = kwargs['hyp']
+                for k,v  in list(config.items()):
+                   if v is None:
+                      del config[k]
+                overrides.update(config)
+            del kwargs['hyp']    
+           
+        #********************** update hyp end **********************
         custom = {'data': TASK2DATA[self.task]}  # method defaults
         args = {**overrides, **custom, **kwargs, 'mode': 'train'}  # highest priority args on the right
+                
+
         if args.get('resume'):
             args['resume'] = self.ckpt_path
 

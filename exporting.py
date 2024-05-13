@@ -4,10 +4,10 @@ import struct
 
 
 if __name__=='__main__':
-    model_path = '/mnt/DD3/Models_yolov8/FreeZone256n/train/weights/best.pt'
+    model_path = '/mnt/DD3/Models_yolov8/CrowdHuman-480n/train/weights/best.pt'
     model = YOLO(model_path)
     print(model.model)
-    model.export(format='onnx',opset=14)
+    model.export(format='onnx',opset=14,dynamic=True)
     print(model)
 
     f = open(model_path.replace('.pt','.wts'), 'w')

@@ -266,7 +266,6 @@ def non_max_suppression_embedding(
     return output
 
 
-
 def non_max_suppression(
         prediction,
         conf_thres=0.25,

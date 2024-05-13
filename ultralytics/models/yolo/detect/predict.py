@@ -4,7 +4,6 @@ from ultralytics.engine.predictor import BasePredictor
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
 EMBED_SIZE = 32
-
 class DetectionPredictor(BasePredictor):
     """
     A class extending the BasePredictor class for prediction based on a detection model.
@@ -39,7 +38,6 @@ class DetectionPredictor(BasePredictor):
             img_path = self.batch[0][i]
             results.append(Results(orig_img, path=img_path, names=self.model.names, boxes=pred))
         return results
-
 
 
 
